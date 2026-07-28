@@ -1,0 +1,6 @@
+pandas
+sqlalchemy
+mariadb
+psycopg2-binary
+apscheduler
+requests

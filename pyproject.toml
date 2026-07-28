@@ -1,0 +1,14 @@
+[project]
+name = "maria-db-to-scheduling"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "apscheduler>=3.11.3",
+    "mariadb>=1.1.14",
+    "pandas>=3.0.5",
+    "sqlalchemy>=2.0.51",
+    "tabulate>=0.10.0",
+    "transform",
+]
