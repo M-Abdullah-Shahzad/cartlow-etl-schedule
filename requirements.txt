@@ -1,0 +1,7 @@
+pandas
+SQLAlchemy
+mariadb
+psycopg2-binary
+APScheduler
+requests
+python-dotenv
