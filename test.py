@@ -1,36 +1,58 @@
-import sqlalchemy as db
+"""Diagnostic script for checking the source and target database connections.
+
+Configure SOURCE_DATABASE_URL and TARGET_DATABASE_URL in your local .env file.
+This script prints row-ID watermarks only; it never prints credentials.
+"""
+
+import os
+
 import pandas as pd
+import sqlalchemy as db
+from dotenv import load_dotenv
 
-# Source MariaDB Connection
-src_engine = db.create_engine(
-    'mariadb+mariadbconnector://cartlow_bi_interns:yKA57ZbGDre4r5tr3hn0HTRy@46.101.156.26:3306/cartlow_prod',
-    connect_args={'connect_timeout': 60},
-    pool_recycle=3600
-)
+load_dotenv()
 
-# Target PostgreSQL Connection
-dest_engine = db.create_engine(
-    'postgresql+psycopg2://postgres:postgres@localhost:5432/cartlow_target'
-)
 
-# Fetch Max ID from Source (MariaDB)
-src_connect = src_engine.connect()
-src_max_df = pd.read_sql("SELECT MAX(id) as max_id FROM cartlow_prod.orders", src_connect)
-src_max_id = src_max_df['max_id'].iloc[0]
-src_connect.close()
+def _engine_from_env(name: str):
+    url = os.getenv(name)
+    if not url:
+        raise RuntimeError(
+            f"Missing {name}. Configure it in your local .env file."
+        )
+    return db.create_engine(url)
 
-# Fetch Max ID from Target (PostgreSQL)
-dest_connect = dest_engine.connect()
-try:
-    dest_max_df = pd.read_sql("SELECT MAX(id) as max_id FROM orders", dest_connect)
-    dest_max_id = dest_max_df['max_id'].iloc[0]
-except Exception:
-    dest_max_id = 0
-dest_connect.close()
 
-# Handle None/NaN cases if tables are empty
-src_max_id = 0 if pd.isna(src_max_id) else int(src_max_id)
-dest_max_id = 0 if pd.isna(dest_max_id) else int(dest_max_id)
+def main() -> None:
+    source_engine = _engine_from_env("SOURCE_DATABASE_URL")
+    target_engine = _engine_from_env("TARGET_DATABASE_URL")
 
-print(f"Source MariaDB Max ID (cartlow_prod.orders): {src_max_id}")
-print(f"Target PostgreSQL Max ID (cartlow_target.orders): {dest_max_id}")
+    try:
+        with source_engine.connect() as source_connection:
+            source_max_df = pd.read_sql(
+                "SELECT MAX(id) AS max_id FROM cartlow_prod.orders",
+                source_connection,
+            )
+            source_max_id = source_max_df["max_id"].iloc[0]
+
+        with target_engine.connect() as target_connection:
+            try:
+                target_max_df = pd.read_sql(
+                    "SELECT MAX(id) AS max_id FROM orders",
+                    target_connection,
+                )
+                target_max_id = target_max_df["max_id"].iloc[0]
+            except Exception:
+                target_max_id = 0
+
+        source_max_id = 0 if pd.isna(source_max_id) else int(source_max_id)
+        target_max_id = 0 if pd.isna(target_max_id) else int(target_max_id)
+
+        print(f"Source MariaDB Max ID: {source_max_id}")
+        print(f"Target PostgreSQL Max ID: {target_max_id}")
+    finally:
+        source_engine.dispose()
+        target_engine.dispose()
+
+
+if __name__ == "__main__":
+    main()
