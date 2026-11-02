@@ -73,6 +73,10 @@ See [\.env.example](.env.example). Use your own database credentials and never c
 - The pipeline does not create production source credentials; obtain authorization and credentials from the database owner.
 - Before deploying, confirm that the source user has least-privilege read access and that the target database is backed up.
 
+## Database diagnostic
+
+Run `python test.py` to compare the maximum order IDs in the source and target databases. It uses the same local `SOURCE_DATABASE_URL` and `TARGET_DATABASE_URL` settings and does not print connection strings or credentials.
+
 ## Repository layout
 
 - `extract.py` — source extraction and pipeline-state lookup
