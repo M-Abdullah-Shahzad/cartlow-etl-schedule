@@ -1,10 +1,18 @@
-import importlib
 import logging
 import os
 
 import requests
 from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
+
+from extract import (
+    ensure_pipeline_state,
+    extract_order_chunks,
+    get_source_engine,
+    get_target_engine,
+)
+from load import load_chunk
+from transformation import transform_chunk
 
 load_dotenv()
 
@@ -49,40 +57,47 @@ def trigger_metabase_sync() -> bool:
         logger.info("Metabase schema synchronization request completed.")
         return True
     except requests.RequestException:
-        logger.exception("Metabase synchronization failed. Check the service and configured credentials.")
+        logger.exception(
+            "Metabase synchronization failed. Check the service and configured credentials."
+        )
         return False
 
 
 def run_etl_job() -> None:
-    logger.info("Incremental ETL job started.")
+    """Run one incremental ETL cycle and always dispose database engines."""
+    source_engine = None
+    target_engine = None
+    processed_rows = 0
 
-    import extract
-    importlib.reload(extract)
-
-    has_data = False
     try:
-        for chunk in extract.chunk_generator:
-            has_data = True
+        target_engine = get_target_engine()
+        source_engine = get_source_engine()
+        last_id = ensure_pipeline_state(target_engine)
 
-            import transformation
-            transformation.current_chunk = chunk
-            importlib.reload(transformation)
+        for chunk in extract_order_chunks(source_engine, last_id):
+            transformed = transform_chunk(chunk)
+            if transformed.empty:
+                continue
 
-            import load
-            load.df = transformation.df
-            importlib.reload(load)
+            last_id = load_chunk(transformed, target_engine)
+            processed_rows += len(transformed)
+            logger.info(
+                "Loaded %s rows; pipeline high-water mark is now %s.",
+                len(transformed),
+                last_id,
+            )
 
-            logger.info("Processed and loaded %s rows to PostgreSQL.", len(transformation.df))
-
-        if not has_data:
-            logger.info("No new orders found.")
-        else:
-            logger.info("ETL job finished. Triggering Metabase schema synchronization.")
+        if processed_rows:
+            logger.info("ETL cycle completed with %s rows.", processed_rows)
             trigger_metabase_sync()
+        else:
+            logger.info("No new orders found; target is already up to date.")
+
     finally:
-        source_connection = getattr(extract, "src_connect", None)
-        if source_connection is not None:
-            source_connection.close()
+        if source_engine is not None:
+            source_engine.dispose()
+        if target_engine is not None:
+            target_engine.dispose()
 
 
 def main() -> None:
