@@ -1,7 +1,7 @@
-pandas
-SQLAlchemy
-mariadb
-psycopg2-binary
-APScheduler
-requests
-python-dotenv
+pandas>=2.2,<4
+SQLAlchemy>=2.0,<3
+mariadb>=1.1,<2
+psycopg2-binary>=2.9,<3
+APScheduler>=3.11,<4
+requests>=2.31,<3
+python-dotenv>=1.0,<2
