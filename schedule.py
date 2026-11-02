@@ -1,64 +1,115 @@
-import time
 import importlib
+import logging
+import os
+
 import requests
 from apscheduler.schedulers.blocking import BlockingScheduler
+from dotenv import load_dotenv
 
-METABASE_URL = "http://localhost:3000"
-METABASE_USER = "abdullahrana5677@gmail.com"  
-METABASE_PASSWORD = "metabase1"       
-DATABASE_ID = 1                                    
+load_dotenv()
 
-def trigger_metabase_sync():
-    session = requests.Session()
-    auth_res = session.post(f"{METABASE_URL}/api/session", json={
-        "username": METABASE_USER,
-        "password": METABASE_PASSWORD
-    })
-    
-    if auth_res.status_code == 200:
-        token = auth_res.json().get("id")
-        headers = {"X-Metabase-Session": token}
-        
-        
-        session.post(f"{METABASE_URL}/api/database/{DATABASE_ID}/sync_schema", headers=headers)
-        print("Metabase database synchronization triggered successfully.")
-    else:
-        print("Metabase authentication failed. Check credentials in schedule.py.")
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
-def run_etl_job():
-    print("Incremental ETL Job started...")
-    
+
+def trigger_metabase_sync() -> bool:
+    """Trigger a Metabase schema refresh when credentials are configured."""
+    base_url = os.getenv("METABASE_URL", "").rstrip("/")
+    username = os.getenv("METABASE_USERNAME")
+    password = os.getenv("METABASE_PASSWORD")
+    database_id = os.getenv("METABASE_DATABASE_ID", "1")
+
+    if not all((base_url, username, password, database_id)):
+        logger.info("Metabase sync skipped: Metabase environment settings are incomplete.")
+        return False
+
+    try:
+        with requests.Session() as session:
+            auth_res = session.post(
+                f"{base_url}/api/session",
+                json={"username": username, "password": password},
+                timeout=20,
+            )
+            auth_res.raise_for_status()
+            token = auth_res.json().get("id")
+            if not token:
+                logger.error("Metabase authentication response did not contain a session ID.")
+                return False
+
+            sync_res = session.post(
+                f"{base_url}/api/database/{database_id}/sync_schema",
+                headers={"X-Metabase-Session": token},
+                timeout=30,
+            )
+            sync_res.raise_for_status()
+
+        logger.info("Metabase schema synchronization request completed.")
+        return True
+    except requests.RequestException:
+        logger.exception("Metabase synchronization failed. Check the service and configured credentials.")
+        return False
+
+
+def run_etl_job() -> None:
+    logger.info("Incremental ETL job started.")
+
     import extract
     importlib.reload(extract)
-    
+
     has_data = False
-    for chunk in extract.chunk_generator:
-        has_data = True
-        
-        import transformation
-        transformation.current_chunk = chunk
-        importlib.reload(transformation)
-        
-        import load
-        load.df = transformation.df
-        importlib.reload(load)
-        
-        print(f"Processed and loaded chunk of {len(transformation.df)} rows to PostgreSQL.")
-        
-    extract.src_connect.close()
-    
-    if not has_data:
-        print("No new orders found.")
-    else:
-        print("ETL Job finished successfully. Updating Metabase dashboard...")
-        trigger_metabase_sync()
+    try:
+        for chunk in extract.chunk_generator:
+            has_data = True
+
+            import transformation
+            transformation.current_chunk = chunk
+            importlib.reload(transformation)
+
+            import load
+            load.df = transformation.df
+            importlib.reload(load)
+
+            logger.info("Processed and loaded %s rows to PostgreSQL.", len(transformation.df))
+
+        if not has_data:
+            logger.info("No new orders found.")
+        else:
+            logger.info("ETL job finished. Triggering Metabase schema synchronization.")
+            trigger_metabase_sync()
+    finally:
+        source_connection = getattr(extract, "src_connect", None)
+        if source_connection is not None:
+            source_connection.close()
 
 
-run_etl_job()
+def main() -> None:
+    try:
+        interval_minutes = int(os.getenv("ETL_INTERVAL_MINUTES", "0"))
+    except ValueError as exc:
+        raise RuntimeError("ETL_INTERVAL_MINUTES must be an integer.") from exc
+
+    if interval_minutes < 0:
+        raise RuntimeError("ETL_INTERVAL_MINUTES cannot be negative.")
+
+    if interval_minutes == 0:
+        run_etl_job()
+        return
+
+    scheduler = BlockingScheduler()
+    scheduler.add_job(
+        run_etl_job,
+        trigger="interval",
+        minutes=interval_minutes,
+        id="incremental_etl",
+        max_instances=1,
+        coalesce=True,
+    )
+    logger.info("Starting ETL scheduler with a %s-minute interval.", interval_minutes)
+    scheduler.start()
 
 
-# scheduler = BlockingScheduler()
-# scheduler.add_job(run_etl_job, 'interval', minutes=2)
-
-# print("APScheduler active. Running incremental pipeline every 2 minutes...")
-# scheduler.start()
+if __name__ == "__main__":
+    main()
