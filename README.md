@@ -93,6 +93,17 @@ The diagnostic compares the maximum order IDs in the source and target databases
 - Metabase synchronization is optional and skipped when its configuration is incomplete.
 - Scheduling is opt-in; a default run does not remain active.
 
+## Tests
+
+Install development tooling and run the unit tests:
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+The tests use an in-memory SQLite database to verify transformation and transactional high-water-mark behavior. They do not connect to production systems.
+
 ## Security
 
 Never commit `.env`, production connection strings, API tokens, private keys, or database exports. The values previously committed to this repository must be rotated with the relevant database and service owners. Removing a value from the latest source does not remove it from Git history.
