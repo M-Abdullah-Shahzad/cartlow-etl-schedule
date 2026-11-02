@@ -1,9 +1,12 @@
 @echo off
+setlocal
+cd /d "%~dp0"
 
-cd /d "C:\Users\usama\OneDrive\Desktop\maria_db_to_scheduling"
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" schedule.py
+) else (
+    python schedule.py
+)
 
-call .venv\Scripts\activate
-
-python schedule.py
-
-pause
+if errorlevel 1 pause
+endlocal

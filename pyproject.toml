@@ -1,14 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "maria-db-to-scheduling"
-version = "0.1.0"
-description = "Add your description here"
+name = "cartlow-incremental-etl"
+version = "1.0.0"
+description = "Incremental MariaDB to PostgreSQL ETL pipeline with optional scheduling and Metabase synchronization."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "apscheduler>=3.11.3",
-    "mariadb>=1.1.14",
-    "pandas>=3.0.5",
-    "sqlalchemy>=2.0.51",
-    "tabulate>=0.10.0",
-    "transform",
+    "pandas>=2.2,<4",
+    "SQLAlchemy>=2.0,<3",
+    "mariadb>=1.1,<2",
+    "psycopg2-binary>=2.9,<3",
+    "APScheduler>=3.11,<4",
+    "requests>=2.31,<3",
+    "python-dotenv>=1.0,<2",
 ]
