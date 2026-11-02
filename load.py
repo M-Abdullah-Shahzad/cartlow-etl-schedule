@@ -1,35 +1,36 @@
-import os
-
 import pandas as pd
 import sqlalchemy as db
 from dotenv import load_dotenv
 
 load_dotenv()
 
-if "df" not in globals():
-    df = pd.DataFrame()
 
-target_database_url = os.getenv("TARGET_DATABASE_URL")
-if not target_database_url:
-    raise RuntimeError(
-        "Missing required environment variable: TARGET_DATABASE_URL. "
-        "Copy .env.example to .env and configure it before running the ETL."
-    )
+def load_chunk(dataframe: pd.DataFrame, target_engine, chunksize: int = 1000) -> int:
+    """Append one transformed chunk and advance the high-water mark atomically."""
+    if dataframe.empty:
+        raise ValueError("Cannot load an empty dataframe.")
+    if "id" not in dataframe.columns:
+        raise ValueError("The transformed dataframe must contain an 'id' column.")
 
-dest_engine = db.create_engine(target_database_url)
+    new_max_id = int(pd.to_numeric(dataframe["id"], errors="raise").max())
 
-if "df" in globals() and not df.empty:
-    with dest_engine.begin() as dest_connect:
-        df.to_sql(
+    with target_engine.begin() as connection:
+        dataframe.to_sql(
             name="orders",
-            con=dest_connect,
+            con=connection,
             if_exists="append",
             index=False,
             method="multi",
+            chunksize=chunksize,
         )
-
-        new_max_id = int(df["id"].max())
-        dest_connect.execute(
+        result = connection.execute(
             db.text("UPDATE pipeline_state SET last_id = :last_id"),
             {"last_id": new_max_id},
         )
+        if result.rowcount == 0:
+            connection.execute(
+                db.text("INSERT INTO pipeline_state (last_id) VALUES (:last_id)"),
+                {"last_id": new_max_id},
+            )
+
+    return new_max_id
